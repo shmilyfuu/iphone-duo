@@ -31,12 +31,23 @@ function resolveVideoRange(video: HTMLVideoElement, range: VideoRange) {
   return { startAt, endAt }
 }
 
+function clampVideoTime(video: HTMLVideoElement, seconds: number) {
+  const duration = Number.isFinite(video.duration) ? video.duration : 0
+  return Math.min(Math.max(0, seconds), Math.max(0, duration - 0.001))
+}
+
 function keepVideoInRange(video: HTMLVideoElement | undefined, range: VideoRange, forceStart = false) {
   if (!video || video.readyState < 1) return
   const { startAt, endAt } = resolveVideoRange(video, range)
   if (forceStart || video.currentTime < startAt - 0.02 || (endAt > startAt && video.currentTime >= endAt - 0.02)) {
     video.currentTime = startAt
   }
+}
+
+function showVideoFrame(video: HTMLVideoElement | undefined, seconds: number) {
+  if (!video || video.readyState < 1) return
+  video.pause()
+  video.currentTime = clampVideoTime(video, seconds)
 }
 
 export type PhoneDeviceProps = ComponentProps<'div'> & {
@@ -47,8 +58,12 @@ export type PhoneDeviceProps = ComponentProps<'div'> & {
   coverKind?: MediaKind
   screenStart?: number
   screenEnd?: number
+  screenFreezeFrame?: number
+  screenPlayDelay?: number
   coverStart?: number
   coverEnd?: number
+  coverFreezeFrame?: number
+  coverPlayDelay?: number
   screenScale?: number
   screenOffsetX?: number
   screenOffsetY?: number
@@ -93,8 +108,12 @@ function PhoneDeviceSurface({
   coverKind = screenKind,
   screenStart = 0,
   screenEnd = 0,
+  screenFreezeFrame = 0,
+  screenPlayDelay = 0,
   coverStart = 0,
   coverEnd = 0,
+  coverFreezeFrame = 0,
+  coverPlayDelay = 0,
   screenScale = 1,
   screenOffsetX = 0,
   screenOffsetY = 0,
@@ -137,6 +156,13 @@ function PhoneDeviceSurface({
   const coverVideo = useRef<HTMLVideoElement | undefined>(undefined)
   const screenRange = useRef<VideoRange>({ start: screenStart, end: screenEnd })
   const coverRange = useRef<VideoRange>({ start: coverStart, end: coverEnd })
+  const screenFreeze = useRef(screenFreezeFrame)
+  const coverFreeze = useRef(coverFreezeFrame)
+  const screenDelay = useRef(screenPlayDelay)
+  const coverDelay = useRef(coverPlayDelay)
+  const replayMode = useRef(replayVideoOnAnimation)
+  const screenDelayTimer = useRef<number | undefined>(undefined)
+  const coverDelayTimer = useRef<number | undefined>(undefined)
   const drag = useRef<{ x: number; value: number; moved: boolean } | undefined>(undefined)
   const suppressClick = useRef(false)
   const [status, setStatus] = useState('正在加载手机模型…')
@@ -194,19 +220,46 @@ function PhoneDeviceSurface({
     current.draw()
   })
 
+  function clearDelayTimer(timer: MutableRefObject<number | undefined>) {
+    if (timer.current === undefined) return
+    window.clearTimeout(timer.current)
+    timer.current = undefined
+  }
+
   function resumeVideos() {
     for (const video of mediaVideos.current) void video.play().catch(() => undefined)
   }
 
+  function scheduleVideoPlayback(
+    video: HTMLVideoElement | undefined,
+    range: VideoRange,
+    freezeFrame: number,
+    delaySeconds: number,
+    timer: MutableRefObject<number | undefined>,
+  ) {
+    clearDelayTimer(timer)
+    if (!video || video.readyState < 1) return
+    showVideoFrame(video, freezeFrame)
+
+    const startPlayback = () => {
+      timer.current = undefined
+      keepVideoInRange(video, range, true)
+      void video.play().catch(() => setStatus('点击手机后开始播放视频。'))
+    }
+
+    const delayMs = Math.max(0, Math.round(delaySeconds * 1000))
+    if (delayMs === 0) startPlayback()
+    else timer.current = window.setTimeout(startPlayback, delayMs)
+  }
+
   function restartVideos() {
-    keepVideoInRange(screenVideo.current, screenRange.current, true)
-    keepVideoInRange(coverVideo.current, coverRange.current, true)
-    resumeVideos()
+    scheduleVideoPlayback(screenVideo.current, screenRange.current, screenFreeze.current, screenDelay.current, screenDelayTimer)
+    scheduleVideoPlayback(coverVideo.current, coverRange.current, coverFreeze.current, coverDelay.current, coverDelayTimer)
   }
 
   useMotionValueEvent(progress, 'change', setAmount)
   useMotionValueEvent(animationStart, 'change', () => {
-    if (replayVideoOnAnimation) restartVideos()
+    if (replayMode.current) restartVideos()
   })
 
   useEffect(() => { update() }, [
@@ -240,13 +293,47 @@ function PhoneDeviceSurface({
 
   useEffect(() => {
     screenRange.current = { start: screenStart, end: screenEnd }
-    keepVideoInRange(screenVideo.current, screenRange.current)
+    if (replayMode.current) showVideoFrame(screenVideo.current, screenFreeze.current)
+    else keepVideoInRange(screenVideo.current, screenRange.current)
   }, [screenStart, screenEnd])
 
   useEffect(() => {
     coverRange.current = { start: coverStart, end: coverEnd }
-    keepVideoInRange(coverVideo.current, coverRange.current)
+    if (replayMode.current) showVideoFrame(coverVideo.current, coverFreeze.current)
+    else keepVideoInRange(coverVideo.current, coverRange.current)
   }, [coverStart, coverEnd])
+
+  useEffect(() => {
+    screenFreeze.current = screenFreezeFrame
+    if (replayMode.current) showVideoFrame(screenVideo.current, screenFreezeFrame)
+  }, [screenFreezeFrame])
+
+  useEffect(() => {
+    coverFreeze.current = coverFreezeFrame
+    if (replayMode.current) showVideoFrame(coverVideo.current, coverFreezeFrame)
+  }, [coverFreezeFrame])
+
+  useEffect(() => { screenDelay.current = screenPlayDelay }, [screenPlayDelay])
+  useEffect(() => { coverDelay.current = coverPlayDelay }, [coverPlayDelay])
+
+  useEffect(() => {
+    replayMode.current = replayVideoOnAnimation
+    clearDelayTimer(screenDelayTimer)
+    clearDelayTimer(coverDelayTimer)
+    if (replayVideoOnAnimation) {
+      showVideoFrame(screenVideo.current, screenFreeze.current)
+      showVideoFrame(coverVideo.current, coverFreeze.current)
+    } else {
+      keepVideoInRange(screenVideo.current, screenRange.current)
+      keepVideoInRange(coverVideo.current, coverRange.current)
+      resumeVideos()
+    }
+  }, [replayVideoOnAnimation])
+
+  useEffect(() => () => {
+    clearDelayTimer(screenDelayTimer)
+    clearDelayTimer(coverDelayTimer)
+  }, [])
 
   useEffect(() => {
     const element = canvas.current
@@ -335,7 +422,13 @@ function PhoneDeviceSurface({
       return { texture, width: texture.image.width as number, height: texture.image.height as number }
     }
 
-    async function loadVideo(src: string, range: MutableRefObject<VideoRange>, slot: MutableRefObject<HTMLVideoElement | undefined>) {
+    async function loadVideo(
+      src: string,
+      range: MutableRefObject<VideoRange>,
+      slot: MutableRefObject<HTMLVideoElement | undefined>,
+      freeze: MutableRefObject<number>,
+      timer: MutableRefObject<number | undefined>,
+    ) {
       const video = document.createElement('video')
       video.crossOrigin = 'anonymous'
       video.muted = true
@@ -352,6 +445,7 @@ function PhoneDeviceSurface({
       const cleanup = () => {
         if (cleaned) return
         cleaned = true
+        clearDelayTimer(timer)
         if (videoFrame && typeof video.cancelVideoFrameCallback === 'function') video.cancelVideoFrameCallback(videoFrame)
         if (animationFrame) cancelAnimationFrame(animationFrame)
         video.pause()
@@ -376,7 +470,8 @@ function PhoneDeviceSurface({
       })
 
       if (cancelled) { cleanup(); throw new Error('cancelled') }
-      keepVideoInRange(video, range.current, true)
+      if (replayMode.current) showVideoFrame(video, freeze.current)
+      else keepVideoInRange(video, range.current, true)
 
       const texture = new VideoTexture(video)
       configureTexture(texture)
@@ -386,7 +481,7 @@ function PhoneDeviceSurface({
 
       const renderFrame = () => {
         if (cancelled || cleaned) return
-        keepVideoInRange(video, range.current)
+        if (!replayMode.current || !video.paused) keepVideoInRange(video, range.current)
         current.draw()
         if (typeof video.requestVideoFrameCallback === 'function') videoFrame = video.requestVideoFrameCallback(renderFrame)
         else animationFrame = requestAnimationFrame(renderFrame)
@@ -394,17 +489,24 @@ function PhoneDeviceSurface({
       if (typeof video.requestVideoFrameCallback === 'function') videoFrame = video.requestVideoFrameCallback(renderFrame)
       else animationFrame = requestAnimationFrame(renderFrame)
 
-      void video.play().catch(() => setStatus('点击手机后开始播放视频。'))
+      if (!replayMode.current) void video.play().catch(() => setStatus('点击手机后开始播放视频。'))
       return { texture, width: video.videoWidth || 1600, height: video.videoHeight || 1120 }
     }
 
-    async function loadMedia(src: string, kind: MediaKind, range: MutableRefObject<VideoRange>, slot: MutableRefObject<HTMLVideoElement | undefined>) {
-      return kind === 'video' ? loadVideo(src, range, slot) : loadImage(src)
+    async function loadMedia(
+      src: string,
+      kind: MediaKind,
+      range: MutableRefObject<VideoRange>,
+      slot: MutableRefObject<HTMLVideoElement | undefined>,
+      freeze: MutableRefObject<number>,
+      timer: MutableRefObject<number | undefined>,
+    ) {
+      return kind === 'video' ? loadVideo(src, range, slot, freeze, timer) : loadImage(src)
     }
 
     Promise.all([
-      loadMedia(screenSrc, screenKind, screenRange, screenVideo),
-      loadMedia(coverSrc, coverKind, coverRange, coverVideo),
+      loadMedia(screenSrc, screenKind, screenRange, screenVideo, screenFreeze, screenDelayTimer),
+      loadMedia(coverSrc, coverKind, coverRange, coverVideo, coverFreeze, coverDelayTimer),
     ]).then(([screen, cover]) => {
       if (cancelled) return
       current.model.screen.uniforms.screenMap.value = screen.texture
@@ -459,7 +561,7 @@ function PhoneDeviceSurface({
       aria-pressed={amount >= 0.5}
       disabled={!ready}
       onPointerDown={event => {
-        resumeVideos()
+        if (!replayMode.current) resumeVideos()
         if (event.button !== 0) return
         drag.current = { x: event.clientX, value: progress.get(), moved: false }
         event.currentTarget.setPointerCapture(event.pointerId)
@@ -475,7 +577,7 @@ function PhoneDeviceSurface({
       onPointerUp={() => { suppressClick.current = drag.current?.moved ?? false; drag.current = undefined }}
       onPointerCancel={() => { if (drag.current) setValue(drag.current.value); drag.current = undefined; suppressClick.current = true }}
       onClick={event => {
-        resumeVideos()
+        if (!replayMode.current) resumeVideos()
         if (!suppressClick.current) toggle(event.detail === 0)
         suppressClick.current = false
       }}
