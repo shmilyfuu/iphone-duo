@@ -1,19 +1,54 @@
 import { useEffect, useState } from 'react'
-import { DialRoot, useDialKitController } from 'dialkit'
-import 'dialkit/styles.css'
+import { useDialKitController } from 'dialkit'
 import { SocialLinks } from './SocialLinks'
 import { AppleCredit, FoldablePhone, FoldScrubber, FoldToggle, PhoneBackground, PhoneDevice, type MediaKind } from './iphone-duo'
 
-type MediaSource = { src: string; kind: MediaKind; name: string; local?: boolean }
+type MediaSource = { src: string; kind: MediaKind; name: string; local?: boolean; custom?: boolean }
+type NumericControlProps = {
+  label: string
+  value: number
+  min: number
+  max: number
+  step: number
+  onChange: (value: number) => void
+  suffix?: string
+}
 
 const wallpapers = ['lock', 'tide', 'ink'] as const
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function NumericControl({ label, value, min, max, step, onChange, suffix }: NumericControlProps) {
+  const commit = (next: number) => {
+    if (Number.isFinite(next)) onChange(clamp(next, min, max))
+  }
+  return <label className="numeric-control">
+    <span className="control-label">{label}</span>
+    <div className="control-inputs">
+      <input type="range" min={min} max={max} step={step} value={value} onChange={event => commit(event.currentTarget.valueAsNumber)} />
+      <span className="number-wrap">
+        <input type="number" min={min} max={max} step={step} value={value} onChange={event => commit(event.currentTarget.valueAsNumber)} />
+        {suffix && <span className="number-suffix">{suffix}</span>}
+      </span>
+    </div>
+  </label>
+}
+
+function ToggleControl({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return <label className="toggle-control">
+    <span>{label}</span>
+    <input type="checkbox" checked={checked} onChange={event => onChange(event.currentTarget.checked)} />
+  </label>
+}
 
 function builtInMedia(name: typeof wallpapers[number]) {
   const screen = name === 'lock' ? '/wallpapers/apple-desert.avif' : `/wallpapers/${name}.svg`
   const cover = name === 'lock' ? '/wallpapers/apple-desert-cover.avif' : `/wallpapers/${name}.svg`
   return {
-    screen: { src: screen, kind: 'image' as const, name },
-    cover: { src: cover, kind: 'image' as const, name },
+    screen: { src: screen, kind: 'image' as const, name, custom: false },
+    cover: { src: cover, kind: 'image' as const, name, custom: false },
   }
 }
 
@@ -23,6 +58,7 @@ function mediaFromFile(file: File): MediaSource {
     kind: file.type.startsWith('video/') ? 'video' : 'image',
     name: file.name,
     local: true,
+    custom: true,
   }
 }
 
@@ -42,6 +78,7 @@ export default function App() {
   const [coverStart, setCoverStart] = useState(0)
   const [coverEnd, setCoverEnd] = useState(0)
   const [customBackground, setCustomBackground] = useState<string>()
+  const [showIcons, setShowIcons] = useState(true)
 
   const dial = useDialKitController('iPhone Duo', {
     fold: [0, 0, 180, 1],
@@ -58,6 +95,11 @@ export default function App() {
     coverScale: [1, 0.1, 4, 0.01],
     coverX: [0, -1.5, 1.5, 0.01],
     coverY: [0, -1.5, 1.5, 0.01],
+    foldOffsetX: [-4.12, -12, 12, 0.01],
+    foldOffsetY: [0, -12, 12, 0.01],
+    cameraDistance: [36, 18, 80, 0.1],
+    cameraZoom: [1, 0.5, 2.5, 0.01],
+    cameraDistanceMotion: [0, -24, 24, 0.1],
     background: { type: 'select', options: ['Studio', 'Sand', 'Slate', 'Custom'], default: 'Studio' },
   }, { id: 'iphone-duo', persist: true })
   const { values } = dial
@@ -78,17 +120,20 @@ export default function App() {
     setScreenMedia(media.screen)
     setCoverMedia(media.cover)
     setSameMedia(media.screen.src === media.cover.src)
+    setShowIcons(name === 'lock')
   }
 
   function chooseScreenFile(file?: File) {
     if (!file) return
     setScreenMedia(mediaFromFile(file))
+    setShowIcons(false)
   }
 
   function chooseCoverFile(file?: File) {
     if (!file) return
     setCoverMedia(mediaFromFile(file))
     setSameMedia(false)
+    setShowIcons(false)
   }
 
   function chooseBackgroundFile(file?: File) {
@@ -98,7 +143,6 @@ export default function App() {
   }
 
   const lockScreen = screenMedia.src === '/wallpapers/apple-desert.avif' && screenMedia.kind === 'image'
-  const lockCover = effectiveCover.src === '/wallpapers/apple-desert-cover.avif' && effectiveCover.kind === 'image'
   const customBackgroundStyle = values.background === 'Custom' && customBackground
     ? { backgroundImage: `url(${customBackground})` }
     : undefined
@@ -122,66 +166,129 @@ export default function App() {
         coverScale={values.coverScale}
         coverOffsetX={values.coverX}
         coverOffsetY={values.coverY}
+        screenFitAspect={screenMedia.custom === true}
+        coverFitAspect={effectiveCover.custom === true}
         rotationX={values.rotationX}
         rotationY={values.rotationY}
         rotationZ={values.rotationZ}
+        foldOffsetX={values.foldOffsetX}
+        foldOffsetY={values.foldOffsetY}
+        cameraDistance={values.cameraDistance}
+        cameraZoom={values.cameraZoom}
+        cameraDistanceMotion={values.cameraDistanceMotion}
         exposure={values.exposure}
         blur={values.blur}
         parallax={values.parallax}
         revealSrc={lockScreen ? '/wallpapers/home-photo.svg' : undefined}
-        screenOverlaySrc={lockScreen ? '/wallpapers/api-apps.svg' : undefined}
-        coverOverlaySrc={lockCover ? '/wallpapers/api-cover.svg' : undefined}
+        screenOverlaySrc={showIcons ? '/wallpapers/api-apps.svg' : undefined}
+        coverOverlaySrc={showIcons ? '/wallpapers/api-cover.svg' : undefined}
       />
       <div className="phone-controls">
-        <div className="fold-controls"><FoldToggle /><FoldScrubber /><output aria-label="Opening angle">{Math.round(values.fold)}°</output></div>
-        <div className="wallpaper-controls" role="group" aria-label="Wallpaper">
+        <div className="fold-controls"><FoldToggle>{values.fold >= 90 ? '折叠' : '展开'}</FoldToggle><FoldScrubber /><output aria-label="展开角度">{Math.round(values.fold)}°</output></div>
+        <div className="wallpaper-controls" role="group" aria-label="内置壁纸">
           {wallpapers.map(name => {
             const media = builtInMedia(name)
-            return <button key={name} type="button" aria-label={`${name} wallpaper`} aria-pressed={screenMedia.src === media.screen.src} onClick={() => chooseWallpaper(name)}>
+            return <button key={name} type="button" aria-label={`${name} 壁纸`} aria-pressed={screenMedia.src === media.screen.src} onClick={() => chooseWallpaper(name)}>
               <img src={media.cover.src} width="28" height="28" alt="" />
             </button>
           })}
         </div>
       </div>
-      <div className="phone-caption"><span>Drag to unfold. Click to open or close.</span><AppleCredit /></div>
+      <div className="phone-caption"><span>拖动手机或下方滑杆控制折叠。</span><AppleCredit /></div>
     </FoldablePhone>
 
-    <nav className="page-actions" aria-label="Page controls"><button type="button" onClick={() => setDark(!dark)}>{dark ? 'Light mode' : 'Dark mode'}</button><a href="https://www.apple.com/iphone-duo/" target="_blank" rel="noopener noreferrer">iPhone Duo</a></nav>
+    <nav className="page-actions" aria-label="页面控制"><button type="button" onClick={() => setDark(!dark)}>{dark ? '浅色模式' : '深色模式'}</button><a href="https://www.apple.com/iphone-duo/" target="_blank" rel="noopener noreferrer">iPhone Duo</a></nav>
     <SocialLinks />
-    <button className="tuning-toggle" type="button" aria-expanded={tuning} aria-controls="phone-tuning" onClick={() => setTuning(!tuning)}>{tuning ? 'Close controls' : 'Tune'}</button>
+    <button className="tuning-toggle" type="button" aria-expanded={tuning} aria-controls="phone-tuning" onClick={() => setTuning(!tuning)}>{tuning ? '关闭调节' : '调节'}</button>
 
-    <aside id="phone-tuning" className="tuning-panel" aria-label="Phone settings" hidden={!tuning}>
-      <section className="media-editor" aria-label="Local media">
-        <h2>Media</h2>
+    <aside id="phone-tuning" className="tuning-panel" aria-label="手机调节设置" hidden={!tuning}>
+      <section className="control-section media-editor" aria-label="媒体">
+        <h2>屏幕媒体</h2>
         <label className="file-control">
-          <span>Inner screen</span>
+          <span>大屏图片 / 视频</span>
           <input type="file" accept="image/*,video/mp4,video/webm" onChange={event => { chooseScreenFile(event.currentTarget.files?.[0]); event.currentTarget.value = '' }} />
         </label>
         <div className="media-name" title={screenMedia.name}>{screenMedia.name}</div>
         <div className="time-controls">
-          <label>Start <input type="number" min="0" step="0.1" value={screenStart} onChange={event => setScreenStart(seconds(event.currentTarget.valueAsNumber))} /></label>
-          <label>End <input type="number" min="0" step="0.1" value={screenEnd} onChange={event => setScreenEnd(seconds(event.currentTarget.valueAsNumber))} /></label>
+          <label>播放起点 <input type="number" min="0" step="0.1" value={screenStart} onChange={event => setScreenStart(seconds(event.currentTarget.valueAsNumber))} /></label>
+          <label>播放终点 <input type="number" min="0" step="0.1" value={screenEnd} onChange={event => setScreenEnd(seconds(event.currentTarget.valueAsNumber))} /></label>
         </div>
 
-        <label className="same-media-control"><input type="checkbox" checked={sameMedia} onChange={event => setSameMedia(event.currentTarget.checked)} /> Use inner source for cover</label>
+        <ToggleControl label="小屏使用同一媒体" checked={sameMedia} onChange={setSameMedia} />
 
         <label className="file-control">
-          <span>Cover screen</span>
+          <span>小屏图片 / 视频</span>
           <input type="file" accept="image/*,video/mp4,video/webm" disabled={sameMedia} onChange={event => { chooseCoverFile(event.currentTarget.files?.[0]); event.currentTarget.value = '' }} />
         </label>
         <div className="media-name" title={effectiveCover.name}>{effectiveCover.name}</div>
         <div className="time-controls">
-          <label>Start <input type="number" min="0" step="0.1" value={coverStart} onChange={event => setCoverStart(seconds(event.currentTarget.valueAsNumber))} /></label>
-          <label>End <input type="number" min="0" step="0.1" value={coverEnd} onChange={event => setCoverEnd(seconds(event.currentTarget.valueAsNumber))} /></label>
+          <label>播放起点 <input type="number" min="0" step="0.1" value={coverStart} onChange={event => setCoverStart(seconds(event.currentTarget.valueAsNumber))} /></label>
+          <label>播放终点 <input type="number" min="0" step="0.1" value={coverEnd} onChange={event => setCoverEnd(seconds(event.currentTarget.valueAsNumber))} /></label>
         </div>
-        <p className="media-hint">End 0 uses the full video duration.</p>
+        <p className="media-hint">播放终点填 0 时使用视频完整时长。</p>
+        <ToggleControl label="显示应用图标" checked={showIcons} onChange={setShowIcons} />
+      </section>
 
+      <section className="control-section">
+        <h2>折叠与动画</h2>
+        <NumericControl label="展开角度" value={values.fold} min={0} max={180} step={1} suffix="°" onChange={value => dial.setValue('fold', value)} />
+        <NumericControl label="动画时长" value={values.duration} min={0.2} max={4} step={0.05} suffix="s" onChange={value => dial.setValue('duration', value)} />
+        <NumericControl label="折叠位移 X" value={values.foldOffsetX} min={-12} max={12} step={0.01} onChange={value => dial.setValue('foldOffsetX', value)} />
+        <NumericControl label="折叠位移 Y" value={values.foldOffsetY} min={-12} max={12} step={0.01} onChange={value => dial.setValue('foldOffsetY', value)} />
+      </section>
+
+      <section className="control-section">
+        <h2>模型旋转</h2>
+        <NumericControl label="X 轴旋转" value={values.rotationX} min={-180} max={180} step={1} suffix="°" onChange={value => dial.setValue('rotationX', value)} />
+        <NumericControl label="Y 轴旋转" value={values.rotationY} min={-180} max={180} step={1} suffix="°" onChange={value => dial.setValue('rotationY', value)} />
+        <NumericControl label="Z 轴旋转" value={values.rotationZ} min={-180} max={180} step={1} suffix="°" onChange={value => dial.setValue('rotationZ', value)} />
+      </section>
+
+      <section className="control-section">
+        <h2>镜头</h2>
+        <NumericControl label="镜头距离" value={values.cameraDistance} min={18} max={80} step={0.1} onChange={value => dial.setValue('cameraDistance', value)} />
+        <NumericControl label="镜头缩放" value={values.cameraZoom} min={0.5} max={2.5} step={0.01} onChange={value => dial.setValue('cameraZoom', value)} />
+        <NumericControl label="镜头距离动画" value={values.cameraDistanceMotion} min={-24} max={24} step={0.1} onChange={value => dial.setValue('cameraDistanceMotion', value)} />
+        <p className="control-hint">镜头距离动画为折叠状态相对展开状态的距离偏移。</p>
+      </section>
+
+      <section className="control-section">
+        <h2>大屏内容</h2>
+        <NumericControl label="大小" value={values.innerScale} min={0.1} max={4} step={0.01} onChange={value => dial.setValue('innerScale', value)} />
+        <NumericControl label="水平位置" value={values.innerX} min={-1.5} max={1.5} step={0.01} onChange={value => dial.setValue('innerX', value)} />
+        <NumericControl label="垂直位置" value={values.innerY} min={-1.5} max={1.5} step={0.01} onChange={value => dial.setValue('innerY', value)} />
+      </section>
+
+      <section className="control-section">
+        <h2>小屏内容</h2>
+        <NumericControl label="大小" value={values.coverScale} min={0.1} max={4} step={0.01} onChange={value => dial.setValue('coverScale', value)} />
+        <NumericControl label="水平位置" value={values.coverX} min={-1.5} max={1.5} step={0.01} onChange={value => dial.setValue('coverX', value)} />
+        <NumericControl label="垂直位置" value={values.coverY} min={-1.5} max={1.5} step={0.01} onChange={value => dial.setValue('coverY', value)} />
+      </section>
+
+      <section className="control-section">
+        <h2>屏幕效果</h2>
+        <NumericControl label="模糊强度" value={values.blur} min={0} max={80} step={1} onChange={value => dial.setValue('blur', value)} />
+        <NumericControl label="视差强度" value={values.parallax} min={0} max={2} step={0.05} onChange={value => dial.setValue('parallax', value)} />
+        <NumericControl label="曝光" value={values.exposure} min={0.5} max={2} step={0.05} onChange={value => dial.setValue('exposure', value)} />
+      </section>
+
+      <section className="control-section">
+        <h2>背景</h2>
+        <label className="select-control">
+          <span>背景类型</span>
+          <select value={values.background} onChange={event => dial.setValue('background', event.currentTarget.value as 'Studio' | 'Sand' | 'Slate' | 'Custom')}>
+            <option value="Studio">演播室</option>
+            <option value="Sand">沙色</option>
+            <option value="Slate">岩灰</option>
+            <option value="Custom">自定义</option>
+          </select>
+        </label>
         <label className="file-control">
-          <span>Custom background</span>
+          <span>上传自定义背景</span>
           <input type="file" accept="image/*" onChange={event => { chooseBackgroundFile(event.currentTarget.files?.[0]); event.currentTarget.value = '' }} />
         </label>
       </section>
-      <DialRoot mode="inline" defaultOpen theme={dark ? 'dark' : 'light'} productionEnabled />
     </aside>
   </main>
 }
