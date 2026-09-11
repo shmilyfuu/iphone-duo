@@ -1,6 +1,19 @@
 import { useEffect, useEffectEvent, useRef, useState, type ComponentProps } from 'react'
 import { useMotionValueEvent, useReducedMotion } from 'motion/react'
-import { ACESFilmicToneMapping, AmbientLight, DirectionalLight, PerspectiveCamera, PMREMGenerator, Scene, SRGBColorSpace, TextureLoader, WebGLRenderer, type Texture } from 'three'
+import {
+  ACESFilmicToneMapping,
+  AmbientLight,
+  DirectionalLight,
+  LinearMipmapLinearFilter,
+  PerspectiveCamera,
+  PMREMGenerator,
+  Scene,
+  SRGBColorSpace,
+  TextureLoader,
+  VideoTexture,
+  WebGLRenderer,
+  type Texture,
+} from 'three'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { loadPhone } from './model'
 import { foldChoreography } from './fold-choreography'
@@ -8,22 +21,81 @@ import { useFoldablePhone } from './FoldablePhone'
 
 type PhoneModel = Awaited<ReturnType<typeof loadPhone>>
 type Surface = { model: PhoneModel; renderer: WebGLRenderer; draw: () => void }
-export type PhoneDeviceProps = ComponentProps<'div'> & { modelSrc: string; screenSrc: string; coverSrc?: string; rotation?: number; exposure?: number; blur?: number; parallax?: number; screenOverlaySrc?: string; coverOverlaySrc?: string; revealSrc?: string }
+export type MediaKind = 'image' | 'video'
+
+export type PhoneDeviceProps = ComponentProps<'div'> & {
+  modelSrc: string
+  screenSrc: string
+  coverSrc?: string
+  screenKind?: MediaKind
+  coverKind?: MediaKind
+  screenStart?: number
+  screenEnd?: number
+  coverStart?: number
+  coverEnd?: number
+  screenScale?: number
+  screenOffsetX?: number
+  screenOffsetY?: number
+  coverScale?: number
+  coverOffsetX?: number
+  coverOffsetY?: number
+  rotation?: number
+  rotationX?: number
+  rotationY?: number
+  rotationZ?: number
+  exposure?: number
+  blur?: number
+  parallax?: number
+  screenOverlaySrc?: string
+  coverOverlaySrc?: string
+  revealSrc?: string
+}
 
 export function PhoneDevice(props: PhoneDeviceProps) {
   return <PhoneDeviceSurface key={props.modelSrc} {...props} />
 }
 
-function PhoneDeviceSurface({ modelSrc, screenSrc, coverSrc = screenSrc, screenOverlaySrc, coverOverlaySrc, revealSrc, rotation = -6, exposure = 1.2, blur = 28, parallax = 1, className = '', ...props }: PhoneDeviceProps) {
+function PhoneDeviceSurface({
+  modelSrc,
+  screenSrc,
+  coverSrc = screenSrc,
+  screenKind = 'image',
+  coverKind = screenKind,
+  screenStart = 0,
+  screenEnd = 0,
+  coverStart = 0,
+  coverEnd = 0,
+  screenScale = 1,
+  screenOffsetX = 0,
+  screenOffsetY = 0,
+  coverScale = 1,
+  coverOffsetX = 0,
+  coverOffsetY = 0,
+  rotation,
+  rotationX = 0,
+  rotationY,
+  rotationZ = 0,
+  exposure = 1.2,
+  blur = 28,
+  parallax = 1,
+  screenOverlaySrc,
+  coverOverlaySrc,
+  revealSrc,
+  className = '',
+  ...props
+}: PhoneDeviceProps) {
   const { progress, setValue, toggle } = useFoldablePhone()
   const reducedMotion = useReducedMotion()
   const canvas = useRef<HTMLCanvasElement>(null)
   const surface = useRef<Surface | undefined>(undefined)
+  const mediaVideos = useRef<Set<HTMLVideoElement>>(new Set())
   const drag = useRef<{ x: number; value: number; moved: boolean } | undefined>(undefined)
   const suppressClick = useRef(false)
   const [status, setStatus] = useState('Loading Apple model…')
   const [ready, setReady] = useState(false)
   const [amount, setAmount] = useState(progress.get())
+  const resolvedRotationY = rotationY ?? rotation ?? -6
+
   const update = useEffectEvent(() => {
     const current = surface.current
     if (!current) return
@@ -36,9 +108,17 @@ function PhoneDeviceSurface({ modelSrc, screenSrc, coverSrc = screenSrc, screenO
     current.model.cover.uniforms.progress.value = p
     current.model.screen.uniforms.blur.value = blur
     current.model.cover.uniforms.blur.value = blur
+    current.model.screen.uniforms.mediaScale.value = screenScale
+    current.model.screen.uniforms.mediaOffset.value.set(screenOffsetX, screenOffsetY)
+    current.model.cover.uniforms.mediaScale.value = coverScale
+    current.model.cover.uniforms.mediaOffset.value.set(coverOffsetX, coverOffsetY)
     current.model.left.rotation.y = angle
     current.model.body.position.x = -4.12 * (1 - Math.max(0, Math.cos(angle)))
-    current.model.body.rotation.y = rotation * Math.PI / 180
+    current.model.body.rotation.set(
+      rotationX * Math.PI / 180,
+      resolvedRotationY * Math.PI / 180,
+      rotationZ * Math.PI / 180,
+    )
     current.model.screen.uniforms.parallax.value = reducedMotion ? 0 : parallax
     current.model.cover.uniforms.parallax.value = reducedMotion ? 0 : parallax
     current.model.body.updateMatrixWorld(true)
@@ -47,8 +127,14 @@ function PhoneDeviceSurface({ modelSrc, screenSrc, coverSrc = screenSrc, screenO
     current.renderer.toneMappingExposure = exposure
     current.draw()
   })
+
+  function resumeVideos() {
+    for (const video of mediaVideos.current) void video.play().catch(() => undefined)
+  }
+
   useMotionValueEvent(progress, 'change', setAmount)
-  useEffect(() => { update() }, [rotation, exposure, blur, parallax, reducedMotion])
+  useEffect(() => { update() }, [rotationX, resolvedRotationY, rotationZ, exposure, blur, parallax, screenScale, screenOffsetX, screenOffsetY, coverScale, coverOffsetX, coverOffsetY, reducedMotion])
+
   useEffect(() => {
     const element = canvas.current
     if (!element) return
@@ -106,37 +192,129 @@ function PhoneDeviceSurface({ modelSrc, screenSrc, coverSrc = screenSrc, screenO
       renderer.dispose()
     }
   }, [modelSrc, progress])
+
   useEffect(() => {
     if (!ready || !surface.current) return
     const current = surface.current
     let cancelled = false
-    const textures: Texture[] = []
-    const loader = new TextureLoader()
-    Promise.all([screenSrc, coverSrc].map(src => loader.loadAsync(src).then(texture => {
+    const cleanups: Array<() => void> = []
+
+    function configureTexture(texture: Texture) {
       texture.colorSpace = SRGBColorSpace
       texture.anisotropy = Math.min(8, current.renderer.capabilities.getMaxAnisotropy())
-      if (cancelled) texture.dispose()
-      else textures.push(texture)
-      return texture
-    }))).then(([screen, cover]) => {
+    }
+
+    async function loadImage(src: string) {
+      const texture = await new TextureLoader().loadAsync(src)
+      if (cancelled) { texture.dispose(); throw new Error('cancelled') }
+      configureTexture(texture)
+      cleanups.push(() => texture.dispose())
+      return { texture, width: texture.image.width as number, height: texture.image.height as number }
+    }
+
+    async function loadVideo(src: string, start: number, end: number) {
+      const video = document.createElement('video')
+      video.crossOrigin = 'anonymous'
+      video.muted = true
+      video.playsInline = true
+      video.preload = 'auto'
+      video.loop = false
+      video.src = src
+      mediaVideos.current.add(video)
+
+      let videoFrame = 0
+      let animationFrame = 0
+      let cleaned = false
+      const cleanup = () => {
+        if (cleaned) return
+        cleaned = true
+        if (videoFrame && typeof video.cancelVideoFrameCallback === 'function') video.cancelVideoFrameCallback(videoFrame)
+        if (animationFrame) cancelAnimationFrame(animationFrame)
+        video.pause()
+        mediaVideos.current.delete(video)
+        video.removeAttribute('src')
+        video.load()
+      }
+      cleanups.push(cleanup)
+
+      await new Promise<void>((resolve, reject) => {
+        if (video.readyState >= 1) { resolve(); return }
+        const loaded = () => { release(); resolve() }
+        const failed = () => { release(); reject(new Error('Video metadata could not load.')) }
+        const release = () => {
+          video.removeEventListener('loadedmetadata', loaded)
+          video.removeEventListener('error', failed)
+        }
+        video.addEventListener('loadedmetadata', loaded)
+        video.addEventListener('error', failed)
+        video.load()
+      })
+
+      if (cancelled) { cleanup(); throw new Error('cancelled') }
+      const duration = Number.isFinite(video.duration) ? video.duration : 0
+      const startAt = Math.min(Math.max(0, start), Math.max(0, duration - 0.05))
+      const endAt = end > startAt ? Math.min(end, duration) : duration
+      video.currentTime = startAt
+
+      const texture = new VideoTexture(video)
+      configureTexture(texture)
+      texture.generateMipmaps = true
+      texture.minFilter = LinearMipmapLinearFilter
+      cleanups.push(() => texture.dispose())
+
+      const keepInRange = () => {
+        if (endAt > startAt && video.currentTime >= endAt - 0.02) video.currentTime = startAt
+        else if (video.currentTime < startAt - 0.02) video.currentTime = startAt
+      }
+      const renderFrame = () => {
+        if (cancelled || cleaned) return
+        keepInRange()
+        current.draw()
+        if (typeof video.requestVideoFrameCallback === 'function') videoFrame = video.requestVideoFrameCallback(renderFrame)
+        else animationFrame = requestAnimationFrame(renderFrame)
+      }
+      if (typeof video.requestVideoFrameCallback === 'function') videoFrame = video.requestVideoFrameCallback(renderFrame)
+      else animationFrame = requestAnimationFrame(renderFrame)
+
+      void video.play().catch(() => setStatus('Click the phone to start video playback.'))
+      return { texture, width: video.videoWidth || 1600, height: video.videoHeight || 1120 }
+    }
+
+    async function loadMedia(src: string, kind: MediaKind, start: number, end: number) {
+      return kind === 'video' ? loadVideo(src, start, end) : loadImage(src)
+    }
+
+    Promise.all([
+      loadMedia(screenSrc, screenKind, screenStart, screenEnd),
+      loadMedia(coverSrc, coverKind, coverStart, coverEnd),
+    ]).then(([screen, cover]) => {
       if (cancelled) return
-      current.model.screen.uniforms.screenMap.value = screen
-      current.model.screen.uniforms.resolution.value.set(screen.image.width, screen.image.height)
-      current.model.cover.uniforms.screenMap.value = cover
-      current.model.cover.uniforms.resolution.value.set(cover.image.width, cover.image.height)
+      current.model.screen.uniforms.screenMap.value = screen.texture
+      current.model.screen.uniforms.resolution.value.set(screen.width, screen.height)
+      current.model.cover.uniforms.screenMap.value = cover.texture
+      current.model.cover.uniforms.resolution.value.set(cover.width, cover.height)
       current.model.screen.needsUpdate = true
       current.model.cover.needsUpdate = true
-      current.draw()
+      update()
       setStatus('')
-    }).catch(() => { if (!cancelled) setStatus('A screen image could not load. Choose another image.') })
-    return () => { cancelled = true; for (const texture of textures) texture.dispose() }
-  }, [screenSrc, coverSrc, ready])
+    }).catch(() => { if (!cancelled) setStatus('Screen media could not load. Choose another image or video.') })
+
+    return () => {
+      cancelled = true
+      for (const cleanup of cleanups) cleanup()
+    }
+  }, [screenSrc, coverSrc, screenKind, coverKind, screenStart, screenEnd, coverStart, coverEnd, ready])
+
   useEffect(() => {
     if (!ready || !surface.current) return
     const current = surface.current
     let cancelled = false
     const textures: Texture[] = []
-    for (const [src, material, map, enabled] of [[screenOverlaySrc, current.model.screen, 'overlayMap', 'hasOverlay'], [coverOverlaySrc, current.model.cover, 'overlayMap', 'hasOverlay'], [revealSrc, current.model.screen, 'revealMap', 'hasReveal']] as const) {
+    for (const [src, material, map, enabled] of [
+      [screenOverlaySrc, current.model.screen, 'overlayMap', 'hasOverlay'],
+      [coverOverlaySrc, current.model.cover, 'overlayMap', 'hasOverlay'],
+      [revealSrc, current.model.screen, 'revealMap', 'hasReveal'],
+    ] as const) {
       material.uniforms[enabled].value = 0
       if (!src) continue
       new TextureLoader().loadAsync(src).then(texture => {
@@ -151,11 +329,17 @@ function PhoneDeviceSurface({ modelSrc, screenSrc, coverSrc = screenSrc, screenO
     current.draw()
     return () => { cancelled = true; textures.forEach(texture => texture.dispose()) }
   }, [screenOverlaySrc, coverOverlaySrc, revealSrc, ready])
-  return <div {...props} className={`duo-device ${className}`} data-progress={amount.toFixed(3)} data-ready={ready}
-  >
+
+  return <div {...props} className={`duo-device ${className}`} data-progress={amount.toFixed(3)} data-ready={ready}>
     <canvas ref={canvas} aria-hidden="true" />
-    <button className="duo-device-target" type="button" aria-label="Fold or unfold phone" aria-pressed={amount >= 0.5} disabled={!ready}
+    <button
+      className="duo-device-target"
+      type="button"
+      aria-label="Fold or unfold phone"
+      aria-pressed={amount >= 0.5}
+      disabled={!ready}
       onPointerDown={event => {
+        resumeVideos()
         if (event.button !== 0) return
         drag.current = { x: event.clientX, value: progress.get(), moved: false }
         event.currentTarget.setPointerCapture(event.pointerId)
@@ -170,7 +354,11 @@ function PhoneDeviceSurface({ modelSrc, screenSrc, coverSrc = screenSrc, screenO
       }}
       onPointerUp={() => { suppressClick.current = drag.current?.moved ?? false; drag.current = undefined }}
       onPointerCancel={() => { if (drag.current) setValue(drag.current.value); drag.current = undefined; suppressClick.current = true }}
-      onClick={event => { if (!suppressClick.current) toggle(event.detail === 0); suppressClick.current = false }}
+      onClick={event => {
+        resumeVideos()
+        if (!suppressClick.current) toggle(event.detail === 0)
+        suppressClick.current = false
+      }}
     />
     {status && <p className="duo-status" role="status">{status}</p>}
   </div>
