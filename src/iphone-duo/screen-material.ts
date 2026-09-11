@@ -61,8 +61,13 @@ export function createScreenMaterial(cover: boolean) {
       }
 
       vec4 sampleScreen(vec2 uv, float lod) {
-        float safeScale = max(mediaScale, 0.001);
-        vec2 backgroundUv = ((uv - 0.5 - mediaOffset) * 0.97 / safeScale) + 0.5;
+        float sourceAspect = max(resolution.x / max(resolution.y, 1.0), 0.001);
+        float targetAspect = mix(15.798708 / 11.10349, 7.739354 / 11.251288, cover);
+        vec2 fitSize = sourceAspect > targetAspect
+          ? vec2(1.0, targetAspect / sourceAspect)
+          : vec2(sourceAspect / targetAspect, 1.0);
+        vec2 displaySize = fitSize * max(mediaScale, 0.001);
+        vec2 backgroundUv = ((uv - 0.5 - mediaOffset) / displaySize) + 0.5;
         float backgroundInside = step(0.0, backgroundUv.x) * step(backgroundUv.x, 1.0) * step(0.0, backgroundUv.y) * step(backgroundUv.y, 1.0);
         vec4 backgroundSample = sampleLayer(screenMap, clamp(backgroundUv, vec2(0.001), vec2(0.999)), lod);
         vec4 background = mix(vec4(0.0, 0.0, 0.0, 1.0), backgroundSample, backgroundInside);
