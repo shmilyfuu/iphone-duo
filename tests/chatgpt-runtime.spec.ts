@@ -16,12 +16,11 @@ test('freeze frame and delayed playback controls render without runtime errors',
   await expect(media.getByText('定格帧', { exact: true })).toHaveCount(2)
   await expect(media.getByText('播放延迟（秒）', { exact: true })).toHaveCount(2)
 
-  const freezeInputs = media.getByText('定格帧', { exact: true }).locator('..').locator('input[type="number"]')
-  const delayInputs = media.getByText('播放延迟（秒）', { exact: true }).locator('..').locator('input[type="number"]')
-  await freezeInputs.nth(0).fill('1.234')
-  await delayInputs.nth(0).fill('0.125')
-  await expect(freezeInputs.nth(0)).toHaveValue('1.234')
-  await expect(delayInputs.nth(0)).toHaveValue('0.125')
+  const largeFreezeDelay = media.locator('.time-controls').nth(1).locator('input[type="number"]')
+  await largeFreezeDelay.nth(0).fill('1.234')
+  await largeFreezeDelay.nth(1).fill('0.125')
+  await expect(largeFreezeDelay.nth(0)).toHaveValue('1.234')
+  await expect(largeFreezeDelay.nth(1)).toHaveValue('0.125')
 
   const replayToggle = media.getByText('模型动画开始时重播视频', { exact: true }).locator('..').locator('input[type="checkbox"]')
   await replayToggle.check()
