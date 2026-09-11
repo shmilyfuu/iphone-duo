@@ -19,6 +19,7 @@ export function createScreenMaterial(cover: boolean) {
       mediaScale: { value: 1 },
       mediaOffset: { value: new Vector2(0, 0) },
       mediaRotation: { value: new Vector2(0, 0) },
+      mediaRotationZ: { value: 0 },
       mediaFitAspect: { value: 0 },
     },
     vertexShader: `
@@ -53,6 +54,7 @@ export function createScreenMaterial(cover: boolean) {
       uniform float mediaScale;
       uniform vec2 mediaOffset;
       uniform vec2 mediaRotation;
+      uniform float mediaRotationZ;
       uniform float mediaFitAspect;
       varying vec2 screenUv;
       varying vec3 displayPosition;
@@ -67,11 +69,20 @@ export function createScreenMaterial(cover: boolean) {
       vec2 rotateMediaUv(vec2 centeredUv, float targetAspect) {
         float rx = radians(mediaRotation.x);
         float ry = radians(mediaRotation.y);
+        float rz = radians(mediaRotationZ);
         float sx = sin(rx);
         float cx = cos(rx);
         float sy = sin(ry);
         float cy = cos(ry);
+        float sz = sin(rz);
+        float cz = cos(rz);
         float perspectiveDistance = 2.4;
+
+        vec2 planePoint = vec2(centeredUv.x * targetAspect, centeredUv.y);
+        planePoint = vec2(
+          planePoint.x * cz + planePoint.y * sz,
+          -planePoint.x * sz + planePoint.y * cz
+        );
 
         mat3 homography = mat3(
           perspectiveDistance * cy, 0.0, sy,
@@ -79,7 +90,6 @@ export function createScreenMaterial(cover: boolean) {
           0.0, 0.0, perspectiveDistance
         );
 
-        vec2 planePoint = vec2(centeredUv.x * targetAspect, centeredUv.y);
         vec3 sourcePoint = inverse(homography) * vec3(planePoint, 1.0);
         float safeDepth = abs(sourcePoint.z) < 0.0001 ? 0.0001 : sourcePoint.z;
         vec2 sourcePlane = sourcePoint.xy / safeDepth;
