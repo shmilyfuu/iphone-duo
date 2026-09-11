@@ -54,13 +54,16 @@ export type PhoneDeviceProps = ComponentProps<'div'> & {
   screenOffsetY?: number
   screenRotationX?: number
   screenRotationY?: number
+  screenRotationZ?: number
   coverScale?: number
   coverOffsetX?: number
   coverOffsetY?: number
   coverRotationX?: number
   coverRotationY?: number
+  coverRotationZ?: number
   screenFitAspect?: boolean
   coverFitAspect?: boolean
+  replayVideoOnAnimation?: boolean
   rotation?: number
   rotationX?: number
   rotationY?: number
@@ -97,13 +100,16 @@ function PhoneDeviceSurface({
   screenOffsetY = 0,
   screenRotationX = 0,
   screenRotationY = 0,
+  screenRotationZ = 0,
   coverScale = 1,
   coverOffsetX = 0,
   coverOffsetY = 0,
   coverRotationX = 0,
   coverRotationY = 0,
+  coverRotationZ = 0,
   screenFitAspect = false,
   coverFitAspect = false,
+  replayVideoOnAnimation = false,
   rotation,
   rotationX = 0,
   rotationY,
@@ -122,7 +128,7 @@ function PhoneDeviceSurface({
   className = '',
   ...props
 }: PhoneDeviceProps) {
-  const { progress, setValue, toggle } = useFoldablePhone()
+  const { progress, animationStart, setValue, toggle } = useFoldablePhone()
   const reducedMotion = useReducedMotion()
   const canvas = useRef<HTMLCanvasElement>(null)
   const surface = useRef<Surface | undefined>(undefined)
@@ -155,11 +161,13 @@ function PhoneDeviceSurface({
     current.model.screen.uniforms.mediaScale.value = screenScale
     current.model.screen.uniforms.mediaOffset.value.set(screenOffsetX, screenOffsetY)
     current.model.screen.uniforms.mediaRotation.value.set(screenRotationX, screenRotationY)
+    current.model.screen.uniforms.mediaRotationZ.value = screenRotationZ
     current.model.screen.uniforms.mediaFitAspect.value = screenFitAspect ? 1 : 0
 
     current.model.cover.uniforms.mediaScale.value = coverScale
     current.model.cover.uniforms.mediaOffset.value.set(coverOffsetX, coverOffsetY)
     current.model.cover.uniforms.mediaRotation.value.set(coverRotationX, coverRotationY)
+    current.model.cover.uniforms.mediaRotationZ.value = coverRotationZ
     current.model.cover.uniforms.mediaFitAspect.value = coverFitAspect ? 1 : 0
 
     current.model.left.rotation.y = angle
@@ -190,7 +198,17 @@ function PhoneDeviceSurface({
     for (const video of mediaVideos.current) void video.play().catch(() => undefined)
   }
 
+  function restartVideos() {
+    keepVideoInRange(screenVideo.current, screenRange.current, true)
+    keepVideoInRange(coverVideo.current, coverRange.current, true)
+    resumeVideos()
+  }
+
   useMotionValueEvent(progress, 'change', setAmount)
+  useMotionValueEvent(animationStart, 'change', () => {
+    if (replayVideoOnAnimation) restartVideos()
+  })
+
   useEffect(() => { update() }, [
     rotationX,
     resolvedRotationY,
@@ -208,11 +226,13 @@ function PhoneDeviceSurface({
     screenOffsetY,
     screenRotationX,
     screenRotationY,
+    screenRotationZ,
     coverScale,
     coverOffsetX,
     coverOffsetY,
     coverRotationX,
     coverRotationY,
+    coverRotationZ,
     screenFitAspect,
     coverFitAspect,
     reducedMotion,
