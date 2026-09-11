@@ -24,6 +24,7 @@ function NumericControl({ label, value, min, max, step, onChange, suffix }: Nume
   const commit = (next: number) => {
     if (Number.isFinite(next)) onChange(clamp(next, min, max))
   }
+
   return <label className="numeric-control">
     <span className="control-label">{label}</span>
     <div className="control-inputs">
@@ -92,9 +93,13 @@ export default function App() {
     innerScale: [1, 0.1, 4, 0.01],
     innerX: [0, -1.5, 1.5, 0.01],
     innerY: [0, -1.5, 1.5, 0.01],
+    innerRotateX: [0, -80, 80, 0.1],
+    innerRotateY: [0, -80, 80, 0.1],
     coverScale: [1, 0.1, 4, 0.01],
     coverX: [0, -1.5, 1.5, 0.01],
     coverY: [0, -1.5, 1.5, 0.01],
+    coverRotateX: [0, -80, 80, 0.1],
+    coverRotateY: [0, -80, 80, 0.1],
     foldOffsetX: [-4.12, -12, 12, 0.01],
     foldOffsetY: [0, -12, 12, 0.01],
     cameraDistance: [36, 18, 80, 0.1],
@@ -102,15 +107,18 @@ export default function App() {
     cameraDistanceMotion: [0, -24, 24, 0.1],
     background: { type: 'select', options: ['Studio', 'Sand', 'Slate', 'Custom'], default: 'Studio' },
   }, { id: 'iphone-duo', persist: true })
+
   const { values } = dial
   const effectiveCover = sameMedia ? screenMedia : coverMedia
 
   useEffect(() => () => {
     if (screenMedia.local) URL.revokeObjectURL(screenMedia.src)
   }, [screenMedia])
+
   useEffect(() => () => {
     if (coverMedia.local) URL.revokeObjectURL(coverMedia.src)
   }, [coverMedia])
+
   useEffect(() => () => {
     if (customBackground) URL.revokeObjectURL(customBackground)
   }, [customBackground])
@@ -142,6 +150,45 @@ export default function App() {
     dial.setValue('background', 'Custom')
   }
 
+  function resetVersion() {
+    const media = builtInMedia('lock')
+    dial.setValues({
+      fold: 0,
+      duration: 2,
+      blur: 48,
+      parallax: 1,
+      exposure: 1.2,
+      rotationX: 0,
+      rotationY: -6,
+      rotationZ: 0,
+      innerScale: 1,
+      innerX: 0,
+      innerY: 0,
+      innerRotateX: 0,
+      innerRotateY: 0,
+      coverScale: 1,
+      coverX: 0,
+      coverY: 0,
+      coverRotateX: 0,
+      coverRotateY: 0,
+      foldOffsetX: -4.12,
+      foldOffsetY: 0,
+      cameraDistance: 36,
+      cameraZoom: 1,
+      cameraDistanceMotion: 0,
+      background: 'Studio',
+    })
+    setScreenMedia(media.screen)
+    setCoverMedia(media.cover)
+    setSameMedia(false)
+    setScreenStart(0)
+    setScreenEnd(0)
+    setCoverStart(0)
+    setCoverEnd(0)
+    setCustomBackground(undefined)
+    setShowIcons(true)
+  }
+
   const lockScreen = screenMedia.src === '/wallpapers/apple-desert.avif' && screenMedia.kind === 'image'
   const customBackgroundStyle = values.background === 'Custom' && customBackground
     ? { backgroundImage: `url(${customBackground})` }
@@ -149,59 +196,83 @@ export default function App() {
 
   return <main className={dark ? 'page dark' : 'page'}>
     <FoldablePhone className="phone-study" value={values.fold / 180} onValueChange={value => dial.setValue('fold', value * 180)} duration={values.duration}>
-      <PhoneBackground data-background={values.background} style={customBackgroundStyle} />
-      <PhoneDevice
-        modelSrc="/models/iphone-duo.glb"
-        screenSrc={screenMedia.src}
-        coverSrc={effectiveCover.src}
-        screenKind={screenMedia.kind}
-        coverKind={effectiveCover.kind}
-        screenStart={screenStart}
-        screenEnd={screenEnd}
-        coverStart={coverStart}
-        coverEnd={coverEnd}
-        screenScale={values.innerScale}
-        screenOffsetX={values.innerX}
-        screenOffsetY={values.innerY}
-        coverScale={values.coverScale}
-        coverOffsetX={values.coverX}
-        coverOffsetY={values.coverY}
-        screenFitAspect={screenMedia.custom === true}
-        coverFitAspect={effectiveCover.custom === true}
-        rotationX={values.rotationX}
-        rotationY={values.rotationY}
-        rotationZ={values.rotationZ}
-        foldOffsetX={values.foldOffsetX}
-        foldOffsetY={values.foldOffsetY}
-        cameraDistance={values.cameraDistance}
-        cameraZoom={values.cameraZoom}
-        cameraDistanceMotion={values.cameraDistanceMotion}
-        exposure={values.exposure}
-        blur={values.blur}
-        parallax={values.parallax}
-        revealSrc={lockScreen ? '/wallpapers/home-photo.svg' : undefined}
-        screenOverlaySrc={showIcons ? '/wallpapers/api-apps.svg' : undefined}
-        coverOverlaySrc={showIcons ? '/wallpapers/api-cover.svg' : undefined}
-      />
-      <div className="phone-controls">
-        <div className="fold-controls"><FoldToggle>{values.fold >= 90 ? '折叠' : '展开'}</FoldToggle><FoldScrubber /><output aria-label="展开角度">{Math.round(values.fold)}°</output></div>
-        <div className="wallpaper-controls" role="group" aria-label="内置壁纸">
-          {wallpapers.map(name => {
-            const media = builtInMedia(name)
-            return <button key={name} type="button" aria-label={`${name} 壁纸`} aria-pressed={screenMedia.src === media.screen.src} onClick={() => chooseWallpaper(name)}>
-              <img src={media.cover.src} width="28" height="28" alt="" />
-            </button>
-          })}
-        </div>
+      <div className="phone-stage">
+        <PhoneBackground data-background={values.background} style={customBackgroundStyle} />
+        <PhoneDevice
+          modelSrc="/models/iphone-duo.glb"
+          screenSrc={screenMedia.src}
+          coverSrc={effectiveCover.src}
+          screenKind={screenMedia.kind}
+          coverKind={effectiveCover.kind}
+          screenStart={screenStart}
+          screenEnd={screenEnd}
+          coverStart={coverStart}
+          coverEnd={coverEnd}
+          screenScale={values.innerScale}
+          screenOffsetX={values.innerX}
+          screenOffsetY={values.innerY}
+          screenRotationX={values.innerRotateX}
+          screenRotationY={values.innerRotateY}
+          coverScale={values.coverScale}
+          coverOffsetX={values.coverX}
+          coverOffsetY={values.coverY}
+          coverRotationX={values.coverRotateX}
+          coverRotationY={values.coverRotateY}
+          screenFitAspect={screenMedia.custom === true}
+          coverFitAspect={effectiveCover.custom === true}
+          rotationX={values.rotationX}
+          rotationY={values.rotationY}
+          rotationZ={values.rotationZ}
+          foldOffsetX={values.foldOffsetX}
+          foldOffsetY={values.foldOffsetY}
+          cameraDistance={values.cameraDistance}
+          cameraZoom={values.cameraZoom}
+          cameraDistanceMotion={values.cameraDistanceMotion}
+          exposure={values.exposure}
+          blur={values.blur}
+          parallax={values.parallax}
+          revealSrc={lockScreen ? '/wallpapers/home-photo.svg' : undefined}
+          screenOverlaySrc={showIcons ? '/wallpapers/api-apps.svg' : undefined}
+          coverOverlaySrc={showIcons ? '/wallpapers/api-cover.svg' : undefined}
+        />
       </div>
-      <div className="phone-caption"><span>拖动手机或下方滑杆控制折叠。</span><AppleCredit /></div>
+
+      <div className="phone-controls-area">
+        <div className="phone-controls">
+          <div className="fold-controls">
+            <FoldToggle>{values.fold >= 90 ? '折叠' : '展开'}</FoldToggle>
+            <FoldScrubber />
+            <output aria-label="展开角度">{Math.round(values.fold)}°</output>
+          </div>
+          <div className="wallpaper-controls" role="group" aria-label="内置壁纸">
+            {wallpapers.map(name => {
+              const media = builtInMedia(name)
+              return <button key={name} type="button" aria-label={`${name} 壁纸`} aria-pressed={screenMedia.src === media.screen.src} onClick={() => chooseWallpaper(name)}>
+                <img src={media.cover.src} width="28" height="28" alt="" />
+              </button>
+            })}
+          </div>
+        </div>
+        <div className="phone-caption"><span>拖动手机或下方滑杆控制折叠。</span><AppleCredit /></div>
+      </div>
     </FoldablePhone>
 
-    <nav className="page-actions" aria-label="页面控制"><button type="button" onClick={() => setDark(!dark)}>{dark ? '浅色模式' : '深色模式'}</button><a href="https://www.apple.com/iphone-duo/" target="_blank" rel="noopener noreferrer">iPhone Duo</a></nav>
+    <nav className="page-actions" aria-label="页面控制">
+      <button type="button" onClick={() => setDark(!dark)}>{dark ? '浅色模式' : '深色模式'}</button>
+      <a href="https://www.apple.com/iphone-duo/" target="_blank" rel="noopener noreferrer">iPhone Duo</a>
+    </nav>
     <SocialLinks />
     <button className="tuning-toggle" type="button" aria-expanded={tuning} aria-controls="phone-tuning" onClick={() => setTuning(!tuning)}>{tuning ? '关闭调节' : '调节'}</button>
 
     <aside id="phone-tuning" className="tuning-panel" aria-label="手机调节设置" hidden={!tuning}>
+      <section className="version-section">
+        <div>
+          <strong>当前版本</strong>
+          <span>重置会恢复默认参数和内置素材，本地上传文件不会保留。</span>
+        </div>
+        <button type="button" onClick={resetVersion}>重置版本</button>
+      </section>
+
       <section className="control-section media-editor" aria-label="媒体">
         <h2>屏幕媒体</h2>
         <label className="file-control">
@@ -257,6 +328,8 @@ export default function App() {
         <NumericControl label="大小" value={values.innerScale} min={0.1} max={4} step={0.01} onChange={value => dial.setValue('innerScale', value)} />
         <NumericControl label="水平位置" value={values.innerX} min={-1.5} max={1.5} step={0.01} onChange={value => dial.setValue('innerX', value)} />
         <NumericControl label="垂直位置" value={values.innerY} min={-1.5} max={1.5} step={0.01} onChange={value => dial.setValue('innerY', value)} />
+        <NumericControl label="内容旋转 X" value={values.innerRotateX} min={-80} max={80} step={0.1} suffix="°" onChange={value => dial.setValue('innerRotateX', value)} />
+        <NumericControl label="内容旋转 Y" value={values.innerRotateY} min={-80} max={80} step={0.1} suffix="°" onChange={value => dial.setValue('innerRotateY', value)} />
       </section>
 
       <section className="control-section">
@@ -264,6 +337,8 @@ export default function App() {
         <NumericControl label="大小" value={values.coverScale} min={0.1} max={4} step={0.01} onChange={value => dial.setValue('coverScale', value)} />
         <NumericControl label="水平位置" value={values.coverX} min={-1.5} max={1.5} step={0.01} onChange={value => dial.setValue('coverX', value)} />
         <NumericControl label="垂直位置" value={values.coverY} min={-1.5} max={1.5} step={0.01} onChange={value => dial.setValue('coverY', value)} />
+        <NumericControl label="内容旋转 X" value={values.coverRotateX} min={-80} max={80} step={0.1} suffix="°" onChange={value => dial.setValue('coverRotateX', value)} />
+        <NumericControl label="内容旋转 Y" value={values.coverRotateY} min={-80} max={80} step={0.1} suffix="°" onChange={value => dial.setValue('coverRotateY', value)} />
       </section>
 
       <section className="control-section">
