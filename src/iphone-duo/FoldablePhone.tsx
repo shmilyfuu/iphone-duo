@@ -3,7 +3,12 @@ import { animate, useMotionValue, useMotionValueEvent, useReducedMotion, type Mo
 import './foldable-phone.css'
 import { FOLD_DURATION } from './fold-choreography'
 
-type FoldContext = { progress: MotionValue<number>; setValue: (value: number) => void; toggle: (instant?: boolean) => void }
+type FoldContext = {
+  progress: MotionValue<number>
+  animationStart: MotionValue<number>
+  setValue: (value: number) => void
+  toggle: (instant?: boolean) => void
+}
 const Context = createContext<FoldContext | undefined>(undefined)
 
 export function useFoldablePhone() {
@@ -21,28 +26,34 @@ export type FoldablePhoneProps = Omit<ComponentProps<'div'>, 'defaultValue' | 'o
 
 export function FoldablePhone({ value, defaultValue = 0, onValueChange, duration = FOLD_DURATION, children, className = '', ...props }: FoldablePhoneProps) {
   const progress = useMotionValue(value ?? defaultValue)
+  const animationStart = useMotionValue(0)
   const reducedMotion = useReducedMotion()
   const destination = useRef(value ?? defaultValue)
   const lastReported = useRef(value ?? defaultValue)
   const animation = useRef<ReturnType<typeof animate> | undefined>(undefined)
+
   useEffect(() => {
     if (value === undefined || Math.abs(value - lastReported.current) < 0.000001) return
     animation.current?.stop()
     destination.current = Math.max(0, Math.min(1, value))
     progress.set(destination.current)
   }, [value, progress])
+
   useEffect(() => {
     if (!reducedMotion) return
     animation.current?.stop()
     progress.set(destination.current)
   }, [reducedMotion, progress])
+
   useEffect(() => () => animation.current?.stop(), [])
   useMotionValueEvent(progress, 'change', latest => { lastReported.current = latest; onValueChange?.(latest) })
+
   function setValue(next: number) {
     animation.current?.stop()
     destination.current = Math.max(0, Math.min(1, next))
     progress.set(destination.current)
   }
+
   function toggle(instant = false) {
     const moving = animation.current?.state === 'running'
     const current = moving ? destination.current : progress.get()
@@ -50,9 +61,16 @@ export function FoldablePhone({ value, defaultValue = 0, onValueChange, duration
     animation.current?.stop()
     destination.current = target
     if (instant || reducedMotion) { progress.set(target); return }
-    animation.current = animate(progress, target, { duration: duration * Math.max(0.25, Math.abs(target - progress.get())), ease: 'linear' })
+    animationStart.set(animationStart.get() + 1)
+    animation.current = animate(progress, target, {
+      duration: duration * Math.max(0.25, Math.abs(target - progress.get())),
+      ease: 'linear',
+    })
   }
-  return <Context.Provider value={{ progress, setValue, toggle }}><div {...props} className={`duo-root ${className}`}>{children}</div></Context.Provider>
+
+  return <Context.Provider value={{ progress, animationStart, setValue, toggle }}>
+    <div {...props} className={`duo-root ${className}`}>{children}</div>
+  </Context.Provider>
 }
 
 export function FoldToggle({ children, onClick, ...props }: ComponentProps<'button'>) {
