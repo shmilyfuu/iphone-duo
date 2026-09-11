@@ -18,6 +18,7 @@ export function createScreenMaterial(cover: boolean) {
       cover: { value: cover ? 1 : 0 },
       mediaScale: { value: 1 },
       mediaOffset: { value: new Vector2(0, 0) },
+      mediaRotation: { value: new Vector2(0, 0) },
       mediaFitAspect: { value: 0 },
     },
     vertexShader: `
@@ -51,6 +52,7 @@ export function createScreenMaterial(cover: boolean) {
       uniform float cover;
       uniform float mediaScale;
       uniform vec2 mediaOffset;
+      uniform vec2 mediaRotation;
       uniform float mediaFitAspect;
       varying vec2 screenUv;
       varying vec3 displayPosition;
@@ -62,14 +64,37 @@ export function createScreenMaterial(cover: boolean) {
         return mix(texture2D(layer, uv), textureLod(layer, uv, lod), smoothstep(0.0, 1.0, lod));
       }
 
+      vec2 rotateMediaUv(vec2 centeredUv, float targetAspect) {
+        float rx = radians(mediaRotation.x);
+        float ry = radians(mediaRotation.y);
+        float sx = sin(rx);
+        float cx = cos(rx);
+        float sy = sin(ry);
+        float cy = cos(ry);
+        float perspectiveDistance = 2.4;
+
+        mat3 homography = mat3(
+          perspectiveDistance * cy, 0.0, sy,
+          perspectiveDistance * sy * sx, perspectiveDistance * cx, -cy * sx,
+          0.0, 0.0, perspectiveDistance
+        );
+
+        vec2 planePoint = vec2(centeredUv.x * targetAspect, centeredUv.y);
+        vec3 sourcePoint = inverse(homography) * vec3(planePoint, 1.0);
+        float safeDepth = abs(sourcePoint.z) < 0.0001 ? 0.0001 : sourcePoint.z;
+        vec2 sourcePlane = sourcePoint.xy / safeDepth;
+        return vec2(sourcePlane.x / targetAspect, sourcePlane.y);
+      }
+
       vec4 sampleScreen(vec2 uv, float lod) {
         float safeScale = max(mediaScale, 0.001);
+        float targetAspect = mix(15.798708 / 11.10349, 7.739354 / 11.251288, cover);
         vec2 centeredUv = uv - 0.5 - mediaOffset;
+        centeredUv = rotateMediaUv(centeredUv, targetAspect);
         vec2 backgroundUv;
 
         if (mediaFitAspect > 0.5) {
           float sourceAspect = max(resolution.x / max(resolution.y, 1.0), 0.001);
-          float targetAspect = mix(15.798708 / 11.10349, 7.739354 / 11.251288, cover);
           vec2 fitSize = sourceAspect > targetAspect
             ? vec2(1.0, targetAspect / sourceAspect)
             : vec2(sourceAspect / targetAspect, 1.0);
