@@ -20,8 +20,24 @@ import { foldChoreography } from './fold-choreography'
 import { useFoldablePhone } from './FoldablePhone'
 
 type PhoneModel = Awaited<ReturnType<typeof loadPhone>>
-type Surface = { model: PhoneModel; renderer: WebGLRenderer; draw: () => void }
+type Surface = { model: PhoneModel; renderer: WebGLRenderer; camera: PerspectiveCamera; draw: () => void }
+type VideoRange = { start: number; end: number }
 export type MediaKind = 'image' | 'video'
+
+function resolveVideoRange(video: HTMLVideoElement, range: VideoRange) {
+  const duration = Number.isFinite(video.duration) ? video.duration : 0
+  const startAt = Math.min(Math.max(0, range.start), Math.max(0, duration - 0.05))
+  const endAt = range.end > startAt ? Math.min(range.end, duration) : duration
+  return { startAt, endAt }
+}
+
+function keepVideoInRange(video: HTMLVideoElement | undefined, range: VideoRange, forceStart = false) {
+  if (!video || video.readyState < 1) return
+  const { startAt, endAt } = resolveVideoRange(video, range)
+  if (forceStart || video.currentTime < startAt - 0.02 || (endAt > startAt && video.currentTime >= endAt - 0.02)) {
+    video.currentTime = startAt
+  }
+}
 
 export type PhoneDeviceProps = ComponentProps<'div'> & {
   modelSrc: string
@@ -39,10 +55,17 @@ export type PhoneDeviceProps = ComponentProps<'div'> & {
   coverScale?: number
   coverOffsetX?: number
   coverOffsetY?: number
+  screenFitAspect?: boolean
+  coverFitAspect?: boolean
   rotation?: number
   rotationX?: number
   rotationY?: number
   rotationZ?: number
+  foldOffsetX?: number
+  foldOffsetY?: number
+  cameraDistance?: number
+  cameraZoom?: number
+  cameraDistanceMotion?: number
   exposure?: number
   blur?: number
   parallax?: number
@@ -71,10 +94,17 @@ function PhoneDeviceSurface({
   coverScale = 1,
   coverOffsetX = 0,
   coverOffsetY = 0,
+  screenFitAspect = false,
+  coverFitAspect = false,
   rotation,
   rotationX = 0,
   rotationY,
   rotationZ = 0,
+  foldOffsetX = -4.12,
+  foldOffsetY = 0,
+  cameraDistance = 36,
+  cameraZoom = 1,
+  cameraDistanceMotion = 0,
   exposure = 1.2,
   blur = 28,
   parallax = 1,
@@ -89,9 +119,13 @@ function PhoneDeviceSurface({
   const canvas = useRef<HTMLCanvasElement>(null)
   const surface = useRef<Surface | undefined>(undefined)
   const mediaVideos = useRef<Set<HTMLVideoElement>>(new Set())
+  const screenVideo = useRef<HTMLVideoElement | undefined>(undefined)
+  const coverVideo = useRef<HTMLVideoElement | undefined>(undefined)
+  const screenRange = useRef<VideoRange>({ start: screenStart, end: screenEnd })
+  const coverRange = useRef<VideoRange>({ start: coverStart, end: coverEnd })
   const drag = useRef<{ x: number; value: number; moved: boolean } | undefined>(undefined)
   const suppressClick = useRef(false)
-  const [status, setStatus] = useState('Loading Apple model…')
+  const [status, setStatus] = useState('正在加载手机模型…')
   const [ready, setReady] = useState(false)
   const [amount, setAmount] = useState(progress.get())
   const resolvedRotationY = rotationY ?? rotation ?? -6
@@ -110,10 +144,14 @@ function PhoneDeviceSurface({
     current.model.cover.uniforms.blur.value = blur
     current.model.screen.uniforms.mediaScale.value = screenScale
     current.model.screen.uniforms.mediaOffset.value.set(screenOffsetX, screenOffsetY)
+    current.model.screen.uniforms.mediaFitAspect.value = screenFitAspect ? 1 : 0
     current.model.cover.uniforms.mediaScale.value = coverScale
     current.model.cover.uniforms.mediaOffset.value.set(coverOffsetX, coverOffsetY)
+    current.model.cover.uniforms.mediaFitAspect.value = coverFitAspect ? 1 : 0
     current.model.left.rotation.y = angle
-    current.model.body.position.x = -4.12 * (1 - Math.max(0, Math.cos(angle)))
+    const foldShift = 1 - Math.max(0, Math.cos(angle))
+    current.model.body.position.x = foldOffsetX * foldShift
+    current.model.body.position.y = foldOffsetY * foldShift
     current.model.body.rotation.set(
       rotationX * Math.PI / 180,
       resolvedRotationY * Math.PI / 180,
@@ -121,6 +159,11 @@ function PhoneDeviceSurface({
     )
     current.model.screen.uniforms.parallax.value = reducedMotion ? 0 : parallax
     current.model.cover.uniforms.parallax.value = reducedMotion ? 0 : parallax
+
+    current.camera.position.z = Math.max(10, cameraDistance + cameraDistanceMotion * (1 - p))
+    current.camera.zoom = Math.max(0.05, cameraZoom)
+    current.camera.updateProjectionMatrix()
+
     current.model.body.updateMatrixWorld(true)
     current.model.screen.uniforms.bodyInverse.value.copy(current.model.body.matrixWorld).invert()
     current.model.cover.uniforms.bodyInverse.value.copy(current.model.body.matrixWorld).invert()
@@ -133,18 +176,49 @@ function PhoneDeviceSurface({
   }
 
   useMotionValueEvent(progress, 'change', setAmount)
-  useEffect(() => { update() }, [rotationX, resolvedRotationY, rotationZ, exposure, blur, parallax, screenScale, screenOffsetX, screenOffsetY, coverScale, coverOffsetX, coverOffsetY, reducedMotion])
+  useEffect(() => { update() }, [
+    rotationX,
+    resolvedRotationY,
+    rotationZ,
+    foldOffsetX,
+    foldOffsetY,
+    cameraDistance,
+    cameraZoom,
+    cameraDistanceMotion,
+    exposure,
+    blur,
+    parallax,
+    screenScale,
+    screenOffsetX,
+    screenOffsetY,
+    coverScale,
+    coverOffsetX,
+    coverOffsetY,
+    screenFitAspect,
+    coverFitAspect,
+    reducedMotion,
+  ])
+
+  useEffect(() => {
+    screenRange.current = { start: screenStart, end: screenEnd }
+    keepVideoInRange(screenVideo.current, screenRange.current)
+  }, [screenStart, screenEnd])
+
+  useEffect(() => {
+    coverRange.current = { start: coverStart, end: coverEnd }
+    keepVideoInRange(coverVideo.current, coverRange.current)
+  }, [coverStart, coverEnd])
 
   useEffect(() => {
     const element = canvas.current
     if (!element) return
     const context = element.getContext('webgl2', { alpha: true, antialias: true, preserveDrawingBuffer: true })
-    if (!context) { setStatus('WebGL 2 is unavailable. Enable hardware acceleration to view the phone.'); return }
+    if (!context) { setStatus('当前浏览器无法使用 WebGL 2，请开启硬件加速。'); return }
     const renderer = new WebGLRenderer({ canvas: element, context, alpha: true, antialias: true, preserveDrawingBuffer: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.toneMapping = ACESFilmicToneMapping
     const scene = new Scene()
-    const camera = new PerspectiveCamera(30, 1, 0.1, 100)
+    const camera = new PerspectiveCamera(30, 1, 0.1, 120)
     camera.position.set(0, 0, 36)
     const environment = new RoomEnvironment()
     const generator = new PMREMGenerator(renderer)
@@ -176,12 +250,12 @@ function PhoneDeviceSurface({
       if (disposed) { loaded.dispose(); return }
       model = loaded
       scene.add(model.body)
-      surface.current = { model, renderer, draw: render }
+      surface.current = { model, renderer, camera, draw: render }
       resize()
       update()
       setReady(true)
       setStatus('')
-    }).catch(() => { if (!disposed) setStatus('The Apple model could not load. Reload to try again.') })
+    }).catch(() => { if (!disposed) setStatus('手机模型加载失败，请刷新页面重试。') })
     return () => {
       disposed = true
       unsubscribe()
@@ -212,7 +286,7 @@ function PhoneDeviceSurface({
       return { texture, width: texture.image.width as number, height: texture.image.height as number }
     }
 
-    async function loadVideo(src: string, start: number, end: number) {
+    async function loadVideo(src: string, range: React.MutableRefObject<VideoRange>, slot: React.MutableRefObject<HTMLVideoElement | undefined>) {
       const video = document.createElement('video')
       video.crossOrigin = 'anonymous'
       video.muted = true
@@ -220,6 +294,7 @@ function PhoneDeviceSurface({
       video.preload = 'auto'
       video.loop = false
       video.src = src
+      slot.current = video
       mediaVideos.current.add(video)
 
       let videoFrame = 0
@@ -232,6 +307,7 @@ function PhoneDeviceSurface({
         if (animationFrame) cancelAnimationFrame(animationFrame)
         video.pause()
         mediaVideos.current.delete(video)
+        if (slot.current === video) slot.current = undefined
         video.removeAttribute('src')
         video.load()
       }
@@ -251,10 +327,7 @@ function PhoneDeviceSurface({
       })
 
       if (cancelled) { cleanup(); throw new Error('cancelled') }
-      const duration = Number.isFinite(video.duration) ? video.duration : 0
-      const startAt = Math.min(Math.max(0, start), Math.max(0, duration - 0.05))
-      const endAt = end > startAt ? Math.min(end, duration) : duration
-      video.currentTime = startAt
+      keepVideoInRange(video, range.current, true)
 
       const texture = new VideoTexture(video)
       configureTexture(texture)
@@ -262,13 +335,9 @@ function PhoneDeviceSurface({
       texture.minFilter = LinearMipmapLinearFilter
       cleanups.push(() => texture.dispose())
 
-      const keepInRange = () => {
-        if (endAt > startAt && video.currentTime >= endAt - 0.02) video.currentTime = startAt
-        else if (video.currentTime < startAt - 0.02) video.currentTime = startAt
-      }
       const renderFrame = () => {
         if (cancelled || cleaned) return
-        keepInRange()
+        keepVideoInRange(video, range.current)
         current.draw()
         if (typeof video.requestVideoFrameCallback === 'function') videoFrame = video.requestVideoFrameCallback(renderFrame)
         else animationFrame = requestAnimationFrame(renderFrame)
@@ -276,17 +345,17 @@ function PhoneDeviceSurface({
       if (typeof video.requestVideoFrameCallback === 'function') videoFrame = video.requestVideoFrameCallback(renderFrame)
       else animationFrame = requestAnimationFrame(renderFrame)
 
-      void video.play().catch(() => setStatus('Click the phone to start video playback.'))
+      void video.play().catch(() => setStatus('点击手机后开始播放视频。'))
       return { texture, width: video.videoWidth || 1600, height: video.videoHeight || 1120 }
     }
 
-    async function loadMedia(src: string, kind: MediaKind, start: number, end: number) {
-      return kind === 'video' ? loadVideo(src, start, end) : loadImage(src)
+    async function loadMedia(src: string, kind: MediaKind, range: React.MutableRefObject<VideoRange>, slot: React.MutableRefObject<HTMLVideoElement | undefined>) {
+      return kind === 'video' ? loadVideo(src, range, slot) : loadImage(src)
     }
 
     Promise.all([
-      loadMedia(screenSrc, screenKind, screenStart, screenEnd),
-      loadMedia(coverSrc, coverKind, coverStart, coverEnd),
+      loadMedia(screenSrc, screenKind, screenRange, screenVideo),
+      loadMedia(coverSrc, coverKind, coverRange, coverVideo),
     ]).then(([screen, cover]) => {
       if (cancelled) return
       current.model.screen.uniforms.screenMap.value = screen.texture
@@ -297,13 +366,13 @@ function PhoneDeviceSurface({
       current.model.cover.needsUpdate = true
       update()
       setStatus('')
-    }).catch(() => { if (!cancelled) setStatus('Screen media could not load. Choose another image or video.') })
+    }).catch(() => { if (!cancelled) setStatus('屏幕媒体加载失败，请选择其他图片或视频。') })
 
     return () => {
       cancelled = true
       for (const cleanup of cleanups) cleanup()
     }
-  }, [screenSrc, coverSrc, screenKind, coverKind, screenStart, screenEnd, coverStart, coverEnd, ready])
+  }, [screenSrc, coverSrc, screenKind, coverKind, ready])
 
   useEffect(() => {
     if (!ready || !surface.current) return
@@ -324,7 +393,7 @@ function PhoneDeviceSurface({
         material.uniforms[map].value = texture
         material.uniforms[enabled].value = 1
         current.draw()
-      }).catch(() => { if (!cancelled) setStatus('Screen content could not load. Choose another image.') })
+      }).catch(() => { if (!cancelled) setStatus('屏幕叠加内容加载失败。') })
     }
     current.draw()
     return () => { cancelled = true; textures.forEach(texture => texture.dispose()) }
@@ -335,7 +404,7 @@ function PhoneDeviceSurface({
     <button
       className="duo-device-target"
       type="button"
-      aria-label="Fold or unfold phone"
+      aria-label="折叠或展开手机"
       aria-pressed={amount >= 0.5}
       disabled={!ready}
       onPointerDown={event => {
