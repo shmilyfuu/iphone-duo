@@ -2,7 +2,23 @@ import { Matrix4, ShaderMaterial, Vector2 } from 'three'
 
 export function createScreenMaterial(cover: boolean) {
   return new ShaderMaterial({
-    uniforms: { bodyInverse: { value: new Matrix4() }, screenMap: { value: undefined }, overlayMap: { value: undefined }, hasOverlay: { value: 0 }, revealMap: { value: undefined }, hasReveal: { value: 0 }, resolution: { value: new Vector2(1600, 1200) }, progress: { value: 0 }, focusEdge: { value: cover ? 1.25 : 0.5 }, defocus: { value: 1 }, blur: { value: 28 }, parallax: { value: 1 }, cover: { value: cover ? 1 : 0 } },
+    uniforms: {
+      bodyInverse: { value: new Matrix4() },
+      screenMap: { value: undefined },
+      overlayMap: { value: undefined },
+      hasOverlay: { value: 0 },
+      revealMap: { value: undefined },
+      hasReveal: { value: 0 },
+      resolution: { value: new Vector2(1600, 1200) },
+      progress: { value: 0 },
+      focusEdge: { value: cover ? 1.25 : 0.5 },
+      defocus: { value: 1 },
+      blur: { value: 28 },
+      parallax: { value: 1 },
+      cover: { value: cover ? 1 : 0 },
+      mediaScale: { value: 1 },
+      mediaOffset: { value: new Vector2(0, 0) },
+    },
     vertexShader: `
       uniform mat4 bodyInverse;
       varying vec2 screenUv;
@@ -32,26 +48,36 @@ export function createScreenMaterial(cover: boolean) {
       uniform float defocus;
       uniform float blur;
       uniform float cover;
+      uniform float mediaScale;
+      uniform vec2 mediaOffset;
       varying vec2 screenUv;
       varying vec3 displayPosition;
       varying vec3 displayCamera;
       varying vec3 coverStart;
       varying vec3 coverEnd;
+
       vec4 sampleLayer(sampler2D layer, vec2 uv, float lod) {
         return mix(texture2D(layer, uv), textureLod(layer, uv, lod), smoothstep(0.0, 1.0, lod));
       }
+
       vec4 sampleScreen(vec2 uv, float lod) {
-        vec2 backgroundUv = clamp((uv - 0.5) * 0.97 + 0.5, vec2(0.001), vec2(0.999));
-        vec4 background = sampleLayer(screenMap, backgroundUv, lod);
+        float safeScale = max(mediaScale, 0.001);
+        vec2 backgroundUv = ((uv - 0.5 - mediaOffset) * 0.97 / safeScale) + 0.5;
+        float backgroundInside = step(0.0, backgroundUv.x) * step(backgroundUv.x, 1.0) * step(0.0, backgroundUv.y) * step(backgroundUv.y, 1.0);
+        vec4 backgroundSample = sampleLayer(screenMap, clamp(backgroundUv, vec2(0.001), vec2(0.999)), lod);
+        vec4 background = mix(vec4(0.0, 0.0, 0.0, 1.0), backgroundSample, backgroundInside);
+
         vec2 revealUv = uv;
         vec4 reveal = sampleLayer(revealMap, clamp(revealUv, vec2(0.001), vec2(0.999)), lod);
         float revealInside = step(0.0, revealUv.x) * step(revealUv.x, 1.0) * step(0.0, revealUv.y) * step(revealUv.y, 1.0);
         background.rgb = mix(background.rgb, reveal.rgb, reveal.a * hasReveal * revealInside);
+
         vec2 contentUv = uv;
         vec4 content = sampleLayer(overlayMap, clamp(contentUv, vec2(0.001), vec2(0.999)), lod);
         float inside = step(0.0, contentUv.x) * step(contentUv.x, 1.0) * step(0.0, contentUv.y) * step(contentUv.y, 1.0);
         return vec4(mix(background.rgb, content.rgb, content.a * hasOverlay * inside), 1.0);
       }
+
       void main() {
         vec3 ray = displayPosition - displayCamera;
         float rayDepth = min(ray.z, -0.001);
