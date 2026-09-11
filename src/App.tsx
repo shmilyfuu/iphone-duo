@@ -76,8 +76,12 @@ export default function App() {
   const [sameMedia, setSameMedia] = useState(false)
   const [screenStart, setScreenStart] = useState(0)
   const [screenEnd, setScreenEnd] = useState(0)
+  const [screenFreezeFrame, setScreenFreezeFrame] = useState(0)
+  const [screenPlayDelay, setScreenPlayDelay] = useState(0)
   const [coverStart, setCoverStart] = useState(0)
   const [coverEnd, setCoverEnd] = useState(0)
+  const [coverFreezeFrame, setCoverFreezeFrame] = useState(0)
+  const [coverPlayDelay, setCoverPlayDelay] = useState(0)
   const [customBackground, setCustomBackground] = useState<string>()
   const [showIcons, setShowIcons] = useState(true)
   const [replayVideoOnAnimation, setReplayVideoOnAnimation] = useState(false)
@@ -188,8 +192,12 @@ export default function App() {
     setSameMedia(false)
     setScreenStart(0)
     setScreenEnd(0)
+    setScreenFreezeFrame(0)
+    setScreenPlayDelay(0)
     setCoverStart(0)
     setCoverEnd(0)
+    setCoverFreezeFrame(0)
+    setCoverPlayDelay(0)
     setCustomBackground(undefined)
     setShowIcons(true)
     setReplayVideoOnAnimation(false)
@@ -212,8 +220,12 @@ export default function App() {
           coverKind={effectiveCover.kind}
           screenStart={screenStart}
           screenEnd={screenEnd}
+          screenFreezeFrame={screenFreezeFrame}
+          screenPlayDelay={screenPlayDelay}
           coverStart={coverStart}
           coverEnd={coverEnd}
+          coverFreezeFrame={coverFreezeFrame}
+          coverPlayDelay={coverPlayDelay}
           screenScale={values.innerScale}
           screenOffsetX={values.innerX}
           screenOffsetY={values.innerY}
@@ -293,6 +305,10 @@ export default function App() {
           <label>播放起点 <input type="number" min="0" step="0.1" value={screenStart} onChange={event => setScreenStart(seconds(event.currentTarget.valueAsNumber))} /></label>
           <label>播放终点 <input type="number" min="0" step="0.1" value={screenEnd} onChange={event => setScreenEnd(seconds(event.currentTarget.valueAsNumber))} /></label>
         </div>
+        <div className="time-controls">
+          <label>定格帧 <input type="number" min="0" step="0.001" value={screenFreezeFrame} onChange={event => setScreenFreezeFrame(seconds(event.currentTarget.valueAsNumber))} /></label>
+          <label>播放延迟（秒） <input type="number" min="0" step="0.001" value={screenPlayDelay} onChange={event => setScreenPlayDelay(seconds(event.currentTarget.valueAsNumber))} /></label>
+        </div>
 
         <ToggleControl label="小屏使用同一媒体" checked={sameMedia} onChange={setSameMedia} />
 
@@ -305,9 +321,13 @@ export default function App() {
           <label>播放起点 <input type="number" min="0" step="0.1" value={coverStart} onChange={event => setCoverStart(seconds(event.currentTarget.valueAsNumber))} /></label>
           <label>播放终点 <input type="number" min="0" step="0.1" value={coverEnd} onChange={event => setCoverEnd(seconds(event.currentTarget.valueAsNumber))} /></label>
         </div>
-        <p className="media-hint">播放终点填 0 时使用视频完整时长。</p>
+        <div className="time-controls">
+          <label>定格帧 <input type="number" min="0" step="0.001" value={coverFreezeFrame} onChange={event => setCoverFreezeFrame(seconds(event.currentTarget.valueAsNumber))} /></label>
+          <label>播放延迟（秒） <input type="number" min="0" step="0.001" value={coverPlayDelay} onChange={event => setCoverPlayDelay(seconds(event.currentTarget.valueAsNumber))} /></label>
+        </div>
+        <p className="media-hint">播放终点填 0 时使用视频完整时长。定格帧与播放延迟支持 0.001 秒精度。</p>
         <ToggleControl label="模型动画开始时重播视频" checked={replayVideoOnAnimation} onChange={setReplayVideoOnAnimation} />
-        <p className="media-hint">开启后，每次自动展开或折叠开始时，大屏和小屏视频都会从各自播放起点重新播放。手动拖动进度不会触发重播。</p>
+        <p className="media-hint">开启后，视频待机停在各自定格帧。自动展开或折叠开始后先等待设定延迟，再从各自播放起点开始播放。手动拖动进度不会触发播放。</p>
         <ToggleControl label="显示应用图标" checked={showIcons} onChange={setShowIcons} />
       </section>
 
