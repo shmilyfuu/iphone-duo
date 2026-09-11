@@ -80,6 +80,7 @@ export default function App() {
   const [coverEnd, setCoverEnd] = useState(0)
   const [customBackground, setCustomBackground] = useState<string>()
   const [showIcons, setShowIcons] = useState(true)
+  const [replayVideoOnAnimation, setReplayVideoOnAnimation] = useState(false)
 
   const dial = useDialKitController('iPhone Duo', {
     fold: [0, 0, 180, 1],
@@ -95,11 +96,13 @@ export default function App() {
     innerY: [0, -1.5, 1.5, 0.01],
     innerRotateX: [0, -80, 80, 0.1],
     innerRotateY: [0, -80, 80, 0.1],
+    innerRotateZ: [0, -180, 180, 0.1],
     coverScale: [1, 0.1, 4, 0.01],
     coverX: [0, -1.5, 1.5, 0.01],
     coverY: [0, -1.5, 1.5, 0.01],
     coverRotateX: [0, -80, 80, 0.1],
     coverRotateY: [0, -80, 80, 0.1],
+    coverRotateZ: [0, -180, 180, 0.1],
     foldOffsetX: [-4.12, -12, 12, 0.01],
     foldOffsetY: [0, -12, 12, 0.01],
     cameraDistance: [36, 18, 80, 0.1],
@@ -166,11 +169,13 @@ export default function App() {
       innerY: 0,
       innerRotateX: 0,
       innerRotateY: 0,
+      innerRotateZ: 0,
       coverScale: 1,
       coverX: 0,
       coverY: 0,
       coverRotateX: 0,
       coverRotateY: 0,
+      coverRotateZ: 0,
       foldOffsetX: -4.12,
       foldOffsetY: 0,
       cameraDistance: 36,
@@ -187,6 +192,7 @@ export default function App() {
     setCoverEnd(0)
     setCustomBackground(undefined)
     setShowIcons(true)
+    setReplayVideoOnAnimation(false)
   }
 
   const lockScreen = screenMedia.src === '/wallpapers/apple-desert.avif' && screenMedia.kind === 'image'
@@ -213,13 +219,16 @@ export default function App() {
           screenOffsetY={values.innerY}
           screenRotationX={values.innerRotateX}
           screenRotationY={values.innerRotateY}
+          screenRotationZ={values.innerRotateZ}
           coverScale={values.coverScale}
           coverOffsetX={values.coverX}
           coverOffsetY={values.coverY}
           coverRotationX={values.coverRotateX}
           coverRotationY={values.coverRotateY}
+          coverRotationZ={values.coverRotateZ}
           screenFitAspect={screenMedia.custom === true}
           coverFitAspect={effectiveCover.custom === true}
+          replayVideoOnAnimation={replayVideoOnAnimation}
           rotationX={values.rotationX}
           rotationY={values.rotationY}
           rotationZ={values.rotationZ}
@@ -297,6 +306,8 @@ export default function App() {
           <label>播放终点 <input type="number" min="0" step="0.1" value={coverEnd} onChange={event => setCoverEnd(seconds(event.currentTarget.valueAsNumber))} /></label>
         </div>
         <p className="media-hint">播放终点填 0 时使用视频完整时长。</p>
+        <ToggleControl label="模型动画开始时重播视频" checked={replayVideoOnAnimation} onChange={setReplayVideoOnAnimation} />
+        <p className="media-hint">开启后，每次自动展开或折叠开始时，大屏和小屏视频都会从各自播放起点重新播放。手动拖动进度不会触发重播。</p>
         <ToggleControl label="显示应用图标" checked={showIcons} onChange={setShowIcons} />
       </section>
 
@@ -330,6 +341,7 @@ export default function App() {
         <NumericControl label="垂直位置" value={values.innerY} min={-1.5} max={1.5} step={0.01} onChange={value => dial.setValue('innerY', value)} />
         <NumericControl label="内容旋转 X" value={values.innerRotateX} min={-80} max={80} step={0.1} suffix="°" onChange={value => dial.setValue('innerRotateX', value)} />
         <NumericControl label="内容旋转 Y" value={values.innerRotateY} min={-80} max={80} step={0.1} suffix="°" onChange={value => dial.setValue('innerRotateY', value)} />
+        <NumericControl label="内容旋转 Z" value={values.innerRotateZ} min={-180} max={180} step={0.1} suffix="°" onChange={value => dial.setValue('innerRotateZ', value)} />
       </section>
 
       <section className="control-section">
@@ -339,6 +351,7 @@ export default function App() {
         <NumericControl label="垂直位置" value={values.coverY} min={-1.5} max={1.5} step={0.01} onChange={value => dial.setValue('coverY', value)} />
         <NumericControl label="内容旋转 X" value={values.coverRotateX} min={-80} max={80} step={0.1} suffix="°" onChange={value => dial.setValue('coverRotateX', value)} />
         <NumericControl label="内容旋转 Y" value={values.coverRotateY} min={-80} max={80} step={0.1} suffix="°" onChange={value => dial.setValue('coverRotateY', value)} />
+        <NumericControl label="内容旋转 Z" value={values.coverRotateZ} min={-180} max={180} step={0.1} suffix="°" onChange={value => dial.setValue('coverRotateZ', value)} />
       </section>
 
       <section className="control-section">
