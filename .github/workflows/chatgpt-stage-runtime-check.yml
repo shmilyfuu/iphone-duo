@@ -17,4 +17,4 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npx playwright install --with-deps chromium
-      - run: npx playwright test tests/chatgpt-runtime.spec.ts --project=chromium
+      - run: npx playwright test tests/chatgpt-runtime.spec.ts
